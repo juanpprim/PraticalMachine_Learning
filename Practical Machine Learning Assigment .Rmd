@@ -1,0 +1,135 @@
+---
+title: "Prediction Assignment - Practical Machine Learning"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website [here](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+
+## Load data 
+We can download the data straight from the online repository using the function read.csv. Also we will indicate the text that are reffering to error values that will be transform into null values.  
+
+```{r }
+training = read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+test = read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+
+
+```
+
+
+## Clean the data
+
+First step is to substract the first column of the datasets since it is an index that is not a representative predictor since it is an sequencial list of numbers. Looking to the data we can see a lot of missing values in some of the columns therefore the first step is to explore the data to delete the column that are not going to be good predictors. 
+
+We will find the variables with low variation to remove then as possible predictors. In the histrogram we can see that those variables has a lot of null values
+
+```{r}
+# Remove the first row just index 
+training <- training[, -1]
+test <- test[, -1]
+
+
+# Indentify columns with almos no variation 
+ColumnNearZero <- nearZeroVar(training, saveMetrics = FALSE)
+trainingNzV <- training[, ColumnNearZero]
+
+head(trainingNzV[,1:5],5)
+
+```
+
+
+```{r , echo=FALSE}
+na_frequency <-sapply(trainingNzV, function(y) sum(length(which(is.na(y))))/length(y))
+
+
+histogram(na_frequency)
+
+```
+
+As next step we will remove the variables with almost zero variation and then see if we still have null values. For analyzing the remaining variables we will plot the frequency of null in the remaining variables. 
+
+In the historgram we can see that there is a clear split in 2 group variables depending on the % of nulls. Around 50% of the variables has almost all null values (null frequency close to 1). In the other hand the rest of the variables has almost no null.
+
+``` {r}
+
+# remove variables  
+training <- training[, -ColumnNearZero]
+test <- test[, -ColumnNearZero]
+
+# Study the frequency of NULL values in the remaining variables
+na_frequency <-sapply(training, function(y) sum(length(which(is.na(y))))/length(y))
+histogram(na_frequency)
+
+
+```
+
+We will take as predictor the variables with no null values: 
+ 
+```{r}
+test <- test[, -which(na_frequency > 0.8)]
+training <- training[, -which(na_frequency > 0.8)]
+
+```
+
+## Create a validation dataset 
+To validate our model we will use a partition of the training dataset. We will use 80% of the dataset for training and 20% for crossvalidation to calculate the out sample error rate.
+
+```{r}
+
+
+### create a partition 
+set.seed(7)
+PartIndx <- createDataPartition(y=training$classe,
+                               p=0.8, list=FALSE)
+
+validation <- training[-PartIndx,]
+training <- training[PartIndx,]
+
+```
+
+## Train the model
+We will fit a random forest since it is a powerful model for classification. We will use the CARET package to train our model. Then we will compare the prediction with the actual value and get the model accuracy looking the confussion matrix: 
+```{r}
+modFit <- train(classe~ .,
+                data=training,
+                method="rf", 
+                trControl = trainControl(method = "cv",
+                number = 3,
+                allowParallel = TRUE,
+                verboseIter = TRUE))
+
+
+prediction <- predict(modFit, training)
+ConfMatrix <- confusionMatrix(prediction, training$classe)
+ConfMatrix
+
+```
+
+## Validate model and prediction of the test dataset
+Now that we have our trained model we can use it to cross validated against the validation dataset. Since it has a high accuracy we will apply the model to the test set and see the predictions in a histogram where we can see that the most frequent class is B.
+
+```{r}
+prediction <- predict(modFit, validation)
+ConfMatrix <- confusionMatrix(prediction, validation$classe)
+ConfMatrix
+
+prediction <- predict(modFit, test)
+histogram(prediction)
+```
+
+The mean out sample error can be estimated from the validation dataset: 
+```{r}
+1 - ConfMatrix$overall[1]
+
+```
+```
